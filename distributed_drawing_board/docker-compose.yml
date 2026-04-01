@@ -1,0 +1,98 @@
+services:
+  replica1:
+    build: ./replica1
+    container_name: raft-replica1
+    environment:
+      - PORT=6001
+      - NODE_URL=http://replica1:6001
+      - GATEWAY_URL=http://gateway:5000
+      - REPLICA_URLS=http://replica1:6001,http://replica2:6002,http://replica3:6003
+    ports:
+      - "6001:6001"
+    volumes:
+      - ./replica1:/app
+      - /app/node_modules
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:6001/status').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  replica2:
+    build: ./replica2
+    container_name: raft-replica2
+    environment:
+      - PORT=6002
+      - NODE_URL=http://replica2:6002
+      - GATEWAY_URL=http://gateway:5000
+      - REPLICA_URLS=http://replica1:6001,http://replica2:6002,http://replica3:6003
+    ports:
+      - "6002:6002"
+    volumes:
+      - ./replica2:/app
+      - /app/node_modules
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:6002/status').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  replica3:
+    build: ./replica3
+    container_name: raft-replica3
+    environment:
+      - PORT=6003
+      - NODE_URL=http://replica3:6003
+      - GATEWAY_URL=http://gateway:5000
+      - REPLICA_URLS=http://replica1:6001,http://replica2:6002,http://replica3:6003
+    ports:
+      - "6003:6003"
+    volumes:
+      - ./replica3:/app
+      - /app/node_modules
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:6003/status').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  gateway:
+    build: ./gateway
+    container_name: raft-gateway
+    environment:
+      - PORT=5000
+      - REPLICA_URLS=http://replica1:6001,http://replica2:6002,http://replica3:6003
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./gateway:/app
+      - /app/node_modules
+    depends_on:
+      replica1:
+        condition: service_healthy
+      replica2:
+        condition: service_healthy
+      replica3:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:5000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  fronted:
+    build: ./fronted
+    container_name: raft-fronted
+    ports:
+      - "8080:80"
+    depends_on:
+      gateway:
+        condition: service_healthy
+
+networks:
+  default:
+    name: raft-drawing-network
