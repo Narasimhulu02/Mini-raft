@@ -12,8 +12,13 @@ const clearBtn = document.getElementById("clearBtn");
 const resetBtn = document.getElementById("resetBtn");
 const socketStatus = document.getElementById("socketStatus");
 const leaderStatus = document.getElementById("leaderStatus");
+const strokeLogContainer = document.getElementById("strokeLog");
 
 let drawing = false;
+let strokeCount = 0;
+let strokeLogs = [];
+
+const MAX_LOG_ENTRIES = 10;
 let previousPoint = null;
 let activeTool = "pencil";
 let activeColor = colorPicker.value || "#111111";
@@ -147,6 +152,36 @@ async function refreshLeaderStatus() {
     }
 }
 
+function getTimestamp() {
+    const now = new Date();
+    return `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
+}
+
+function addStrokeLog(message, status = "sent") {
+    strokeCount++;
+    const logEntry = {
+        id: strokeCount,
+        timestamp: getTimestamp(),
+        message: message,
+        status: status
+    };
+
+    strokeLogs.unshift(logEntry);
+    if (strokeLogs.length > MAX_LOG_ENTRIES) {
+        strokeLogs.pop();
+    }
+
+    renderStrokeLog();
+}
+
+function renderStrokeLog() {
+    strokeLogContainer.innerHTML = strokeLogs.map(entry => `
+        <div class="log-entry ${entry.status}">
+            <span class="log-time">[${entry.timestamp}]</span> #${entry.id}: ${entry.message}
+        </div>
+    `).join("");
+}
+
 canvas.addEventListener("pointerdown", (event) => {
     drawing = true;
     previousPoint = getPoint(event);
@@ -181,8 +216,10 @@ canvas.addEventListener("pointermove", (event) => {
 
     if (socket.readyState === WebSocket.OPEN) {
         socket.send(JSON.stringify(stroke));
+        addStrokeLog(`${activeTool} stroke sent to leader`, "sent");
     } else {
         drawStroke(stroke);
+        addStrokeLog(`${activeTool} stroke (offline)`, "error");
     }
 
     previousPoint = currentPoint;
@@ -193,16 +230,20 @@ socket.onmessage = (event) => {
 
     if (payload.type === "stroke" && payload.stroke && payload.stroke.command === "clear") {
         clearBoard();
+        addStrokeLog("Board cleared from leader", "committed");
         return;
     }
 
     if (payload.type === "stroke" && payload.stroke) {
         drawStroke(payload.stroke);
+        const tool = payload.stroke.tool || "pencil";
+        addStrokeLog(`${tool} stroke committed from leader`, "committed");
         return;
     }
 
     if (payload.type === "error") {
         console.log(payload.message);
+        addStrokeLog(`Error: ${payload.message}`, "error");
     }
 };
 
@@ -241,6 +282,7 @@ colorPicker.addEventListener("input", (event) => {
 clearBtn.addEventListener("click", () => {
     clearBoard();
     sendClearCommand();
+    addStrokeLog("Clear board command sent", "sent");
 });
 
 resetBtn.addEventListener("click", () => {
