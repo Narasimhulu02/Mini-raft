@@ -1,20 +1,288 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Drawing Board</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mini Raft Whiteboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Sora:wght@500;700&display=swap" rel="stylesheet">
     <style>
-        canvas {
-            border: 2px solid black;
+        :root {
+            --bg-top: #f3efe4;
+            --bg-mid: #d4e1ec;
+            --bg-bottom: #9fc3d9;
+            --ink: #1d2c3b;
+            --surface: rgba(255, 255, 255, 0.78);
+            --surface-strong: rgba(255, 255, 255, 0.94);
+            --line: rgba(19, 51, 76, 0.2);
+            --accent: #0c8e72;
+            --accent-soft: #dcf5ee;
+            --danger: #d14f4f;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            color: var(--ink);
+            font-family: "Space Grotesk", sans-serif;
+            background:
+                radial-gradient(circle at 12% 12%, rgba(255, 255, 255, 0.65) 0%, rgba(255, 255, 255, 0) 32%),
+                radial-gradient(circle at 92% 18%, rgba(255, 235, 189, 0.4) 0%, rgba(255, 235, 189, 0) 30%),
+                linear-gradient(165deg, var(--bg-top), var(--bg-mid) 52%, var(--bg-bottom));
+            display: grid;
+            place-items: center;
+            padding: 24px;
+        }
+
+        .app-shell {
+            width: min(1180px, 100%);
+            display: grid;
+            grid-template-columns: 320px minmax(0, 1fr);
+            gap: 18px;
+            align-items: start;
+        }
+
+        .panel,
+        .board-wrap {
+            border: 1px solid var(--line);
+            border-radius: 20px;
+            background: var(--surface);
+            backdrop-filter: blur(8px);
+            box-shadow: 0 24px 46px rgba(20, 52, 74, 0.18);
+        }
+
+        .panel {
+            padding: 20px;
+            display: grid;
+            gap: 18px;
+            animation: rise 600ms ease both;
+        }
+
+        .brand {
+            display: grid;
+            gap: 8px;
+        }
+
+        .brand h1 {
+            margin: 0;
+            font-family: "Sora", sans-serif;
+            font-size: clamp(1.35rem, 2.1vw, 1.75rem);
+            letter-spacing: -0.03em;
+        }
+
+        .brand p {
+            margin: 0;
+            font-size: 0.95rem;
+            color: rgba(29, 44, 59, 0.8);
+        }
+
+        .tool-row {
+            display: flex;
+            gap: 10px;
+        }
+
+        .tool-btn {
+            flex: 1;
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            background: var(--surface-strong);
+            color: var(--ink);
+            font: 600 0.92rem "Space Grotesk", sans-serif;
+            padding: 10px;
+            cursor: pointer;
+            transition: transform 120ms ease, border-color 120ms ease, background-color 120ms ease;
+        }
+
+        .tool-btn:hover {
+            transform: translateY(-1px);
+            border-color: rgba(12, 142, 114, 0.4);
+        }
+
+        .tool-btn.active {
+            background: var(--accent-soft);
+            border-color: var(--accent);
+            color: #0a6957;
+        }
+
+        .control {
+            display: grid;
+            gap: 8px;
+        }
+
+        .control label {
+            font-size: 0.88rem;
+            font-weight: 600;
+            letter-spacing: 0.01em;
+        }
+
+        .control input[type="range"] {
+            width: 100%;
+            accent-color: var(--accent);
+        }
+
+        .control input[type="color"] {
+            width: 100%;
+            height: 40px;
+            border-radius: 10px;
+            border: 1px solid var(--line);
+            padding: 4px;
+            background: var(--surface-strong);
+            cursor: pointer;
+        }
+
+        .value-line {
+            font-size: 0.84rem;
+            color: rgba(29, 44, 59, 0.8);
+        }
+
+        .actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .action-btn {
+            flex: 1;
+            border: none;
+            border-radius: 12px;
+            padding: 11px;
+            color: white;
+            font: 600 0.91rem "Space Grotesk", sans-serif;
+            cursor: pointer;
+            transition: transform 120ms ease, filter 120ms ease;
+        }
+
+        .action-btn:hover {
+            transform: translateY(-1px);
+            filter: brightness(1.03);
+        }
+
+        .action-btn.clear {
+            background: var(--danger);
+        }
+
+        .action-btn.reset {
+            background: #405e76;
+        }
+
+        .meta {
+            margin-top: 4px;
+            padding-top: 14px;
+            border-top: 1px dashed var(--line);
+            display: grid;
+            gap: 8px;
+            font-size: 0.83rem;
+            color: rgba(29, 44, 59, 0.76);
+        }
+
+        .status {
+            font-weight: 700;
+            color: #1d2c3b;
+        }
+
+        .board-wrap {
+            padding: 14px;
+            animation: rise 740ms ease both;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .board-wrap::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            background: linear-gradient(120deg, rgba(255, 255, 255, 0.27), rgba(255, 255, 255, 0));
+        }
+
+        #board {
+            width: 100%;
+            height: min(74vh, 720px);
+            border-radius: 14px;
+            border: 1px solid rgba(19, 51, 76, 0.2);
+            background: white;
+            display: block;
+            touch-action: none;
+        }
+
+        @keyframes rise {
+            from {
+                opacity: 0;
+                transform: translateY(14px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @media (max-width: 980px) {
+            .app-shell {
+                grid-template-columns: 1fr;
+            }
+
+            .panel {
+                order: 2;
+            }
+
+            .board-wrap {
+                order: 1;
+            }
+
+            #board {
+                height: min(58vh, 560px);
+            }
         }
     </style>
 </head>
 <body>
+<main class="app-shell">
+    <aside class="panel">
+        <section class="brand">
+            <h1>Mini Raft Whiteboard</h1>
+            <p>Collaborative drawing that feels like a real web app.</p>
+        </section>
 
-<h2>Distributed Drawing Board</h2>
+        <section class="control">
+            <label>Tool</label>
+            <div class="tool-row" role="group" aria-label="Drawing tool">
+                <button class="tool-btn active" id="pencilBtn" data-tool="pencil" type="button">Pencil</button>
+                <button class="tool-btn" id="eraserBtn" data-tool="eraser" type="button">Eraser</button>
+            </div>
+        </section>
 
-<canvas id="board" width="800" height="500"></canvas>
+        <section class="control">
+            <label for="thickness">Thickness</label>
+            <input id="thickness" type="range" min="1" max="40" step="1" value="4">
+            <div class="value-line" id="thicknessValue">4 px</div>
+        </section>
+
+        <section class="control" id="colorControl">
+            <label for="colorPicker">Pencil Color</label>
+            <input id="colorPicker" type="color" value="#111111">
+        </section>
+
+        <section class="actions">
+            <button class="action-btn clear" id="clearBtn" type="button">Clear Board</button>
+            <button class="action-btn reset" id="resetBtn" type="button">Reset Tools</button>
+        </section>
+
+        <section class="meta">
+            <div>Live mode: strokes sync through gateway + Raft leader.</div>
+            <div>Connection: <span class="status" id="socketStatus">Connecting...</span></div>
+            <div>Current Leader: <span class="status" id="leaderStatus">Detecting...</span></div>
+        </section>
+    </aside>
+
+    <section class="board-wrap">
+        <canvas id="board" width="1280" height="760" aria-label="Drawing board"></canvas>
+    </section>
+</main>
 
 <script src="app.js"></script>
-
 </body>
 </html>

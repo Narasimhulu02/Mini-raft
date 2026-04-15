@@ -11,6 +11,7 @@ const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
 const PORT = Number(process.env.PORT || 5000);
+const FETCH_TIMEOUT_MS = Number(process.env.FETCH_TIMEOUT_MS || 2000);
 const replicaUrls = (process.env.REPLICA_URLS || "http://localhost:6001,http://localhost:6002,http://localhost:6003")
     .split(",")
     .map((url) => url.trim())
@@ -29,14 +30,25 @@ function broadcastToClients(payload) {
     }
 }
 
+async function fetchWithTimeout(url, options = {}, timeoutMs = FETCH_TIMEOUT_MS) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+        const response = await fetch(url, { ...options, signal: controller.signal });
+        return response;
+    } finally {
+        clearTimeout(timeoutId);
+    }
+}
+
 async function probeReplica(url) {
     try {
-        const res = await fetch(`${url}/status`);
+        const res = await fetchWithTimeout(`${url}/status`);
         if (!res.ok) {
             return null;
         }
-
-        return res.json();
+        return await res.json();
     } catch {
         return null;
     }
@@ -64,8 +76,20 @@ async function discoverLeader() {
     return null;
 }
 
+async function getHealthyLeader() {
+    if (leaderUrl) {
+        const cached = await probeReplica(leaderUrl);
+        if (cached && cached.role === "leader") {
+            return leaderUrl;
+        }
+        leaderUrl = null;
+    }
+
+    return discoverLeader();
+}
+
 async function sendStrokeToLeader(stroke, retries = 2) {
-    let target = leaderUrl || (await discoverLeader());
+    let target = await getHealthyLeader();
 
     if (!target) {
         throw new Error("No leader available");
@@ -73,7 +97,7 @@ async function sendStrokeToLeader(stroke, retries = 2) {
 
     for (let attempt = 0; attempt <= retries; attempt += 1) {
         try {
-            const res = await fetch(`${target}/stroke`, {
+            const res = await fetchWithTimeout(`${target}/stroke`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(stroke)
@@ -94,11 +118,13 @@ async function sendStrokeToLeader(stroke, retries = 2) {
                 continue;
             }
         } catch {
-            leaderUrl = null;
-            target = await discoverLeader();
-            if (!target) {
-                break;
-            }
+            // Try discovering a new leader on connection failures/timeouts.
+        }
+
+        leaderUrl = null;
+        target = await discoverLeader();
+        if (!target) {
+            break;
         }
     }
 
@@ -142,11 +168,11 @@ app.post("/commit", (req, res) => {
         leaderId
     });
 
-    res.send({ ok: true });
+    return res.send({ ok: true });
 });
 
 app.get("/health", async (_req, res) => {
-    const currentLeader = leaderUrl || (await discoverLeader());
+    const currentLeader = await getHealthyLeader();
     res.send({ ok: true, leaderUrl: currentLeader, replicas: replicaUrls });
 });
 

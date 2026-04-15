@@ -8,8 +8,8 @@ const PORT = Number(process.env.PORT || DEFAULT_PORT);
 const NODE_URL = process.env.NODE_URL || `http://localhost:${PORT}`;
 const GATEWAY_URL = process.env.GATEWAY_URL || "http://localhost:5000";
 const HEARTBEAT_INTERVAL_MS = 150;
-const ELECTION_TIMEOUT_MIN_MS = 500;
-const ELECTION_TIMEOUT_MAX_MS = 800;
+const ELECTION_TIMEOUT_MIN_MS = 900;
+const ELECTION_TIMEOUT_MAX_MS = 1800;
 
 const replicaUrls = (process.env.REPLICA_URLS || "http://localhost:6001,http://localhost:6002,http://localhost:6003")
     .split(",")
@@ -185,6 +185,8 @@ async function startElection() {
         await broadcastHeartbeat();
     } else if (role === "candidate") {
         role = "follower";
+        votedFor = null;
+        resetElectionDeadline();
     }
 
     electionInProgress = false;
