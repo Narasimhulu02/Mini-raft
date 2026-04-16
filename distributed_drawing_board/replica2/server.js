@@ -10,6 +10,9 @@ const GATEWAY_URL = process.env.GATEWAY_URL || "http://localhost:5000";
 const HEARTBEAT_INTERVAL_MS = 150;
 const ELECTION_TIMEOUT_MIN_MS = 900;
 const ELECTION_TIMEOUT_MAX_MS = 1800;
+const ELECTION_NODE_OFFSET_MS = Math.max(0, PORT - DEFAULT_PORT) * 1200;
+const ELECTION_RETRY_BACKOFF_MS = 1500;
+const FETCH_TIMEOUT_MS = 1200;
 
 const replicaUrls = (process.env.REPLICA_URLS || "http://localhost:6001,http://localhost:6002,http://localhost:6003")
     .split(",")
@@ -31,8 +34,12 @@ function randomElectionTimeout() {
     return Math.floor(Math.random() * (ELECTION_TIMEOUT_MAX_MS - ELECTION_TIMEOUT_MIN_MS + 1)) + ELECTION_TIMEOUT_MIN_MS;
 }
 
-function resetElectionDeadline() {
-    electionDeadline = Date.now() + randomElectionTimeout();
+function resetElectionDeadline(extraDelayMs = 0) {
+    electionDeadline = Date.now() + ELECTION_NODE_OFFSET_MS + randomElectionTimeout() + extraDelayMs;
+}
+
+function resetElectionDeadlineAfterFailure() {
+    resetElectionDeadline(ELECTION_RETRY_BACKOFF_MS);
 }
 
 function localLastLogTerm() {
@@ -60,11 +67,17 @@ function isCandidateLogUpToDate(lastLogIndex, lastLogTerm) {
 }
 
 async function postJson(url, payload) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+
     const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
+        signal: controller.signal
     });
+
+    clearTimeout(timeoutId);
     return res.json();
 }
 
@@ -164,7 +177,7 @@ async function startElection() {
                     currentTerm = vote.term;
                     role = "follower";
                     votedFor = null;
-                    resetElectionDeadline();
+                    resetElectionDeadlineAfterFailure();
                     return;
                 }
 
@@ -186,7 +199,7 @@ async function startElection() {
     } else if (role === "candidate") {
         role = "follower";
         votedFor = null;
-        resetElectionDeadline();
+        resetElectionDeadlineAfterFailure();
     }
 
     electionInProgress = false;
@@ -208,6 +221,7 @@ app.post("/request-vote", (req, res) => {
         currentTerm = term;
         role = "follower";
         votedFor = null;
+        resetElectionDeadline();
     }
 
     const canVote = votedFor === null || votedFor === candidateId;
